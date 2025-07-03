@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waste Management Dashboard</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#667eea">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="EasyWaste">
+    <link rel="apple-touch-icon" href="icon-192x192.png">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <link rel="stylesheet" href="app.css">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Header -->
+        <div class="header">
+            <h1><i class="fas fa-recycle"></i> EasyWaste</h1>
+            <div class="header-actions">
+                <div class="location-info" id="locationInfo">
+                    <i class="fas fa-location-arrow"></i>
+                    <span>Getting your location...</span>
+                </div>
+                <div class="distance-filter">
+                    <label for="maxDistance">Show bins within:</label>
+                    <select id="maxDistance" onchange="filterBinsByDistance()">
+                        <option value="1">1 km</option>
+                        <option value="2" selected>2 km</option>
+                        <option value="5">5 km</option>
+                        <option value="10">10 km</option>
+                        <option value="20">20 km</option>
+                        <option value="all">All bins</option>
+                    </select>
+                </div>
+                <button class="btn btn-success" onclick="refreshData()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+                <button class="btn btn-primary" onclick="openReportModal()">
+                    <i class="fas fa-plus"></i> New Report
+                </button>
+            </div>
+        </div>
+
+        <!-- Stats Cards -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #667eea;">
+                    <i class="fas fa-trash-alt"></i>
+                </div>
+                <div class="stat-number" id="totalBins">0</div>
+                <div class="stat-label">Nearby Bins</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #28a745;">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-number" id="emptyBins">0</div>
+                <div class="stat-label">Empty Bins</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #ffc107;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-number" id="mediumBins">0</div>
+                <div class="stat-label">Medium Fill</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-icon" style="color: #dc3545;">
+                    <i class="fas fa-exclamation-circle"></i>
+                </div>
+                <div class="stat-number" id="fullBins">0</div>
+                <div class="stat-label">Full Bins</div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="content-grid">
+            <!-- Bins List -->
+            <div class="card">
+                <h3><i class="fas fa-list"></i> Nearby Waste Bins</h3>
+                <div class="loading" id="binsLoading">
+                    <i class="fas fa-spinner"></i>
+                    <p>Loading bins data...</p>
+                </div>
+                <div class="bin-list" id="binsList"></div>
+            </div>
+
+            <!-- Reports -->
+        </div>
+
+        <!-- Map Placeholder -->
+        <div class="card">
+            <h3><i class="fas fa-map-marker-alt"></i> Bins Location Map</h3>
+            <div class="map-container">
+                <div>
+                    <i class="fas fa-map" style="font-size: 3em; margin-bottom: 20px; color: #ccc;"></i>
+                    <p>Map integration placeholder</p>
+                    <p style="font-size: 0.9em; color: #999;">Connect your preferred mapping service here</p>
+                    
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Report Modal -->
+    <div id="reportModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeReportModal()">&times;</span>
+            <h2>Create New Report</h2>
+            <div class="alert alert-success" id="reportSuccess">Report created successfully!</div>
+            <div class="alert alert-error" id="reportError">Error creating report. Please try again.</div>
+            <form id="reportForm">
+                <div class="form-group">
+                    <label for="reportBinName">Bin Name:</label>
+                    <select id="reportBinName" name="reportBinName" required>
+                        <option value="">Select a bin...</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="reportAction">Action:</label>
+                    <select id="reportAction" name="reportAction" required>
+                        <option value="">Select action...</option>
+                        <option value="collected">Collected</option>
+                        <option value="maintenance">Maintenance</option>
+                        <option value="cleaned">Cleaned</option>
+                        <option value="replaced">Replaced</option>
+                        <option value="inspection">Inspection</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="reportNote">Note:</label>
+                    <textarea id="reportNote" name="reportNote" rows="4" placeholder="Add any additional notes..."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">
+                    <i class="fas fa-save"></i> Create Report
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let map;
+        let binsData = [];
+        let filteredBinsData = [];
+        let reportsData = [];
+        let userLocation = null;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            getUserLocation();
+            
+            // Set up form submissions
+            document.getElementById('reportForm').addEventListener('submit', handleCreateReport);
+            
+            // Auto-refresh data every 30 seconds
+            setInterval(refreshData, 30000);
+        });
+         // Initialize Leaflet map
+        function initializeMap() {
+            if (map) {
+                map.remove();
+            }
+            
+            // Default to Buea, Cameroon coordinates
+            map = L.map('map').setView([4.1560, 9.2870], 13);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+            
+            updateMapMarkers();
+        }
+
+
+        // Get user's location
+        async function getUserLocation() {
+            const locationInfo = document.getElementById('locationInfo');
+            
+            if (!navigator.geolocation) {
+                locationInfo.innerHTML = '<i class="fas fa-exclamation-triangle"></i> <span>Location not supported</span>';
+                locationInfo.classList.add('location-error');
+                loadInitialData();
+                return;
+            }
+
+            const options = {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 600000 // 10 minutes
+            };
+
+            try {
+                const position = await new Promise((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, options);
+                });
+
+                userLocation = {
+                    lat: position.coords.latitude,
+                    lng: position.coords.longitude
+                };
+
+                locationInfo.innerHTML = `<i class="fas fa-map-marker-alt"></i> <span>Location: ${userLocation.lat.toFixed(4)}, ${userLocation.lng.toFixed(4)}</span>`;
+                locationInfo.classList.remove('location-error');
+                
+                await loadInitialData();
+
+            } catch (error) {
+                console.error('Error getting location:', error);
+                let errorMessage = 'Location access denied';
+                
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMessage = 'Location access denied';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMessage = 'Location unavailable';
+                        break;
+                    case error.TIMEOUT:
+                        errorMessage = 'Location timeout';
+                        break;
+                }
+                
+                locationInfo.innerHTML = `<i class="fas fa-exclamation-triangle"></i> <span>${errorMessage}</span>`;
+                locationInfo.classList.add('location-error');
+                
+                // Still load data but show message about location
+                await loadInitialData();
+            }
+        }
+
+        // Calculate distance between two points using Haversine formula
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Earth's radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = 
+                Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+                Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // Filter bins by distance
+        function filterBinsByDistance() {
+            if (!userLocation) {
+                filteredBinsData = [...binsData];
+                renderBinsData();
+                updateStats();
+                updateBinDropdown();
+                return;
+            }
+
+            const maxDistance = document.getElementById('maxDistance').value;
+            
+            if (maxDistance === 'all') {
+                filteredBinsData = [...binsData];
+            } else {
+                const maxDistanceKm = parseFloat(maxDistance);
+                filteredBinsData = binsData.filter(bin => {
+                    const distance = calculateDistance(
+                        userLocation.lat, userLocation.lng,
+                        parseFloat(bin.lat), parseFloat(bin.lng)
+                    );
+                    return distance <= maxDistanceKm;
+                });
+            }
+
+            // Sort by distance (closest first)
+            filteredBinsData.sort((a, b) => {
+                const distanceA = calculateDistance(
+                    userLocation.lat, userLocation.lng,
+                    parseFloat(a.lat), parseFloat(a.lng)
+                );
+                const distanceB = calculateDistance(
+                    userLocation.lat, userLocation.lng,
+                    parseFloat(b.lat), parseFloat(b.lng)
+                );
+                return distanceA - distanceB;
+            });
+
+            renderBinsData();
+            updateStats();
+            updateBinDropdown();
+        }
+
+        // Load initial data
+        async function loadInitialData() {
+            await Promise.all([
+                loadBinsData(),
+                loadReportsData()
+            ]);
+        }
+
+        // Load bins data
+        async function loadBinsData() {
+            document.getElementById('binsLoading').style.display = 'block';
+            document.getElementById('binsList').innerHTML = '';
+            
+            try {
+                const response = await fetch('requestdata.php');
+                const data = await response.json();
+                
+                binsData = data;
+                filterBinsByDistance(); // This will also render and update stats
+                
+            } catch (error) {
+                console.error('Error loading bins data:', error);
+                document.getElementById('binsList').innerHTML = '<p style="color: red; text-align: center;">Error loading bins data</p>';
+            } finally {
+                document.getElementById('binsLoading').style.display = 'none';
+            }
+        }
+
+        // Load reports data
+        async function loadReportsData() {
+            try {
+                const response = await fetch('getReport.php');
+                const data = await response.json();
+                reportsData = data;
+            } catch (error) {
+                console.error('Error loading reports data:', error);
+            }
+        }
+
+        // Render bins data
+        function renderBinsData() {
+            const binsList = document.getElementById('binsList');
+            
+            if (!userLocation) {
+                binsList.innerHTML = `
+                    <div class="no-location-message">
+                        <i class="fas fa-location-arrow"></i>
+                        <h4>Location Access Required</h4>
+                        <p>Please enable location access to see nearby waste bins. You can:</p>
+                        <ul style="text-align: left; margin-top: 10px;">
+                            <li>Refresh the page and allow location access</li>
+                            <li>Check your browser's location settings</li>
+                            <li>Enable GPS on your device</li>
+                        </ul>
+                        <button class="btn btn-primary" onclick="getUserLocation()" style="margin-top: 15px;">
+                            <i class="fas fa-location-arrow"></i> Try Again
+                        </button>
+                    </div>
+                `;
+                return;
+            }
+            
+            if (filteredBinsData.length === 0) {
+                const maxDistance = document.getElementById('maxDistance').value;
+                const message = maxDistance === 'all' ? 
+                    'No bins data available' : 
+                    `No bins found within ${maxDistance} km of your location`;
+                    
+                binsList.innerHTML = `<p style="text-align: center; color: #666;">${message}</p>`;
+                return;
+            }
+            
+            binsList.innerHTML = filteredBinsData.map(bin => {
+                const fillLevel = parseInt(bin.fillLevel);
+                const fillClass = fillLevel <= 30 ? 'fill-low' : fillLevel <= 70 ? 'fill-medium' : 'fill-high';
+                const statusIcon = fillLevel <= 30 ? 'check-circle' : fillLevel <= 70 ? 'exclamation-triangle' : 'exclamation-circle';
+                const statusColor = fillLevel <= 30 ? '#28a745' : fillLevel <= 70 ? '#ffc107' : '#dc3545';
+                
+                const distance = userLocation ? calculateDistance(
+                    userLocation.lat, userLocation.lng,
+                    parseFloat(bin.lat), parseFloat(bin.lng)
+                ) : 0;
+                
+                return `
+                    <div class="bin-item">
+                        <div class="bin-info">
+                            <h4>${bin.bin_name}</h4>
+                            <div class="bin-location">
+                                <i class="fas fa-map-marker-alt"></i> 
+                                ${bin.lat}, ${bin.lng}
+                                ${userLocation ? `<span class="distance-badge">${distance.toFixed(1)} km away</span>` : ''}
+                            </div>
+                            <small style="color: #999;">
+                                <i class="fas fa-clock"></i> ${formatDateTime(bin.timestamp)}
+                            </small>
+                        </div>
+                        <div class="fill-level">
+                            <div class="fill-bar">
+                                <div class="fill-progress ${fillClass}" style="width: ${fillLevel}%"></div>
+                            </div>
+                            <span style="font-weight: bold; color: ${statusColor};">
+                                <i class="fas fa-${statusIcon}"></i> ${fillLevel}%
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Update statistics
+        function updateStats() {
+            const totalBins = filteredBinsData.length;
+            const emptyBins = filteredBinsData.filter(bin => parseInt(bin.fillLevel) <= 30).length;
+            const mediumBins = filteredBinsData.filter(bin => parseInt(bin.fillLevel) > 30 && parseInt(bin.fillLevel) <= 70).length;
+            const fullBins = filteredBinsData.filter(bin => parseInt(bin.fillLevel) > 70).length;
+            
+            document.getElementById('totalBins').textContent = totalBins;
+            document.getElementById('emptyBins').textContent = emptyBins;
+            document.getElementById('mediumBins').textContent = mediumBins;
+            document.getElementById('fullBins').textContent = fullBins;
+        }
+
+        // Update bin dropdown for reports
+        function updateBinDropdown() {
+            const select = document.getElementById('reportBinName');
+            const currentValue = select.value;
+            
+            select.innerHTML = '<option value="">Select a bin...</option>' + 
+                filteredBinsData.map(bin => `<option value="${bin.bin_name}">${bin.bin_name}</option>`).join('');
+            
+            if (currentValue) {
+                select.value = currentValue;
+            }
+        }
+
+        // Handle create report form submission
+        async function handleCreateReport(e) {
+            e.preventDefault();
+            
+            const reportData = {
+                bin_name: document.getElementById('reportBinName').value,
+                action: document.getElementById('reportAction').value,
+                note: document.getElementById('reportNote').value
+            };
+            
+            try {
+                const response = await fetch('insertReport.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(reportData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.status === 'success') {
+                    showAlert('reportSuccess');
+                    document.getElementById('reportForm').reset();
+                    setTimeout(() => {
+                        closeReportModal();
+                        loadReportsData();
+                    }, 1500);
+                } else {
+                    showAlert('reportError');
+                }
+                
+            } catch (error) {
+                console.error('Error creating report:', error);
+                showAlert('reportError');
+            }
+        }
+
+        // Utility functions
+        function formatDateTime(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            return date.toLocaleString();
+        }
+
+        function showAlert(alertId) {
+            const alert = document.getElementById(alertId);
+            alert.style.display = 'block';
+            setTimeout(() => {
+                alert.style.display = 'none';
+            }, 3000);
+        }
+
+        function refreshData() {
+            loadInitialData();
+        }
+
+        // Modal functions
+        function openReportModal() {
+            document.getElementById('reportModal').style.display = 'block';
+        }
+
+        function closeReportModal() {
+            document.getElementById('reportModal').style.display = 'none';
+            document.getElementById('reportForm').reset();
+            hideAlerts();
+        }
+
+        function hideAlerts() {
+            document.querySelectorAll('.alert').forEach(alert => {
+                alert.style.display = 'none';
+            });
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const reportModal = document.getElementById('reportModal');
+            
+            if (event.target === reportModal) {
+                closeReportModal();
+            }
+        }
+
+        // Bins Map Location
+        // Update map markers
+        function updateMapMarkers() {
+            // Clear existing markers
+            map.eachLayer(layer => {
+                if (layer instanceof L.Marker) {
+                    map.removeLayer(layer);
+                }
+            });
+
+            // Add markers for each bin
+            binsData.forEach(bin => {
+                const fillLevel = parseInt(bin.fillLevel);
+                const status = getStatusFromFillLevel(fillLevel);
+                
+                const color = status.class === 'low' ? 'green' : 
+                             status.class === 'medium' ? 'orange' : 'red';
+
+                const marker = L.marker([bin.lat, bin.lng])
+                    .addTo(map)
+                    .bindPopup(`
+                        <div style="text-align: center;">
+                            <h4>${bin.bin_name}</h4>
+                            <p><strong>Fill Level:</strong> ${fillLevel}%</p>
+                            <p><strong>Status:</strong> ${status.text}</p>
+                            <p><small>Last Update: ${new Date(bin.timestamp).toLocaleString()}</small></p>
+                        </div>
+                    `);
+
+                // Change marker color based on fill level
+                marker._icon.style.filter = `hue-rotate(${color === 'green' ? '0' : color === 'orange' ? '40deg' : '120deg'})`;
+            });
+
+            // Fit map to show all markers
+            if (binsData.length > 0) {
+                const group = new L.featureGroup(map._layers);
+                if (Object.keys(group._layers).length > 0) {
+                    map.fitBounds(group.getBounds().pad(0.1));
+                }
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PWA Icon Generator</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .icon-generator { max-width: 600px; margin: 0 auto; }
+        canvas { border: 1px solid #ddd; margin: 10px; }
+        .download-section { margin-top: 20px; }
+        .download-btn { 
+            display: inline-block; 
+            margin: 5px; 
+            padding: 10px 15px; 
+            background: #667eea; 
+            color: white; 
+            text-decoration: none; 
+            border-radius: 5px; 
+        }
+    </style>
+</head>
+<body>
+    <div class="icon-generator">
+        <h1>EasyWaste PWA Icon Generator</h1>
+        <p>This will generate all the required icons for your PWA:</p>
+        
+        <canvas id="iconCanvas" width="512" height="512"></canvas>
+        
+        <div class="download-section" id="downloadSection"></div>
+        
+        <h3>Instructions:</h3>
+        <ol>
+            <li>Right-click each icon below and save as the specified filename</li>
+            <li>Place all icons in the same folder as your index.html file</li>
+            <li>The icons will be automatically referenced by your PWA</li>
+        </ol>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('iconCanvas');
+        const ctx = canvas.getContext('2d');
+        const downloadSection = document.getElementById('downloadSection');
+
+        // Icon sizes needed for PWA
+        const iconSizes = [72, 96, 128, 144, 152, 192, 384, 512];
+
+        function drawIcon(size) {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Set canvas size
+            canvas.width = size;
+            canvas.height = size;
+            
+            // Background gradient
+            const gradient = ctx.createLinearGradient(0, 0, size, size);
+            gradient.addColorStop(0, '#667eea');
+            gradient.addColorStop(1, '#764ba2');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, size, size);
+            
+            // Recycle icon
+            ctx.fillStyle = 'white';
+            ctx.font = `${size * 0.4}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('♻', size/2, size/2);
+            
+            // App name (for larger icons)
+            if (size >= 192) {
+                ctx.font = `${size * 0.08}px Arial`;
+                ctx.fillText('EasyWaste', size/2, size * 0.8);
+            }
+            
+            return canvas.toDataURL('image/png');
+        }
+
+        // Generate all icons
+        iconSizes.forEach(size => {
+            const dataUrl = drawIcon(size);
+            
+            // Create download link
+            const link = document.createElement('a');
+            link.href = dataUrl;
+            link.download = `icon-${size}x${size}.png`;
+            link.className = 'download-btn';
+            link.textContent = `Download ${size}x${size}`;
+            
+            downloadSection.appendChild(link);
+            
+            // Create preview image
+            const img = document.createElement('img');
+            img.src = dataUrl;
+            img.width = Math.min(size, 100);
+            img.height = Math.min(size, 100);
+            img.style.margin = '5px';
+            img.style.border = '1px solid #ddd';
+            
+            downloadSection.appendChild(img);
+        });
+
+        // Reset canvas to 512x512 for main display
+        drawIcon(512);
+    </script>
+</body>
+</html>
